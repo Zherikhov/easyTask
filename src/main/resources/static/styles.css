@@ -321,3 +321,25 @@ button, input, select, textarea {
 .spacer { flex: 1; }
 
 .loading { color: var(--text-muted); padding: 30px; text-align: center; }
+
+.comments-section { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); }
+.comments-section h4 { margin: 0 0 10px; font-size: 14px; }
+.comments-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.comment-item { background: var(--bg); border-radius: 6px; padding: 10px 12px; }
+.comment-header { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.comment-author { font-weight: 600; font-size: 13px; }
+.comment-date { color: var(--text-muted); font-size: 12px; }
+.comment-body { font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
+.comment-actions { display: flex; gap: 10px; margin-top: 6px; }
+.comment-edit-form textarea { width: 100%; }
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.link-btn:hover { color: var(--accent); }
+.comment-form textarea { width: 100%; min-height: 60px; }

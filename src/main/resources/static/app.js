@@ -21,6 +21,17 @@
 
   function getToken() { return localStorage.getItem('et_token'); }
   function getEmail() { return localStorage.getItem('et_email'); }
+  function getUserId() {
+    const token = getToken();
+    if (!token) return null;
+    try {
+      const payload = token.split('.')[1];
+      const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+      return json.sub || null;
+    } catch (e) {
+      return null;
+    }
+  }
   function setSession(token, email) {
     localStorage.setItem('et_token', token);
     localStorage.setItem('et_email', email);
@@ -707,7 +718,19 @@
           <button type="button" class="btn btn-ghost" id="cancel-btn">Close</button>
           ${canWrite ? `<button type="submit" class="btn">${isEdit ? 'Save' : 'Create'}</button>` : ''}
         </div>
-      </form>`);
+      </form>
+      ${isEdit ? `
+        <div class="comments-section">
+          <h4>Comments</h4>
+          <div id="comments-list" class="comments-list"></div>
+          ${canWrite ? `
+            <form id="comment-form" class="comment-form">
+              <textarea id="comment-body" placeholder="Add a comment…" required></textarea>
+              <div class="modal-footer">
+                <button type="submit" class="btn btn-sm">Comment</button>
+              </div>
+            </form>` : ''}
+        </div>` : ''}`);
 
     body.querySelector('#cancel-btn').addEventListener('click', () => {
       closeModal();
@@ -727,6 +750,26 @@
             await api('PATCH', `/api/workspaces/${workspace.id}/projects/${project.id}/issues/${issue.id}/status`,
               { statusId: statusSelect.value });
             toast('Status updated', 'success');
+          } catch (err) {
+            toast(err.message);
+          }
+        });
+      }
+
+      const commentsList = document.getElementById('comments-list');
+      loadComments(workspace, project, issue, commentsList);
+
+      const commentForm = document.getElementById('comment-form');
+      if (commentForm) {
+        commentForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const textarea = document.getElementById('comment-body');
+          const bodyVal = textarea.value.trim();
+          if (!bodyVal) return;
+          try {
+            await api('POST', `/api/workspaces/${workspace.id}/projects/${project.id}/issues/${issue.id}/comments`, { body: bodyVal });
+            textarea.value = '';
+            loadComments(workspace, project, issue, commentsList);
           } catch (err) {
             toast(err.message);
           }
@@ -772,5 +815,80 @@
         }
       });
     }
+  }
+
+  // ---------- issue comments ----------
+
+  async function loadComments(workspace, project, issue, listEl) {
+    listEl.innerHTML = '<div class="loading">Loading…</div>';
+    try {
+      const comments = await api('GET',
+        `/api/workspaces/${workspace.id}/projects/${project.id}/issues/${issue.id}/comments`);
+      const currentUserId = getUserId();
+
+      listEl.innerHTML = comments.length === 0
+        ? '<div class="empty-state">No comments yet.</div>'
+        : comments.map((c) => `
+          <div class="comment-item" data-comment-id="${c.id}">
+            <div class="comment-header">
+              <span class="comment-author">${escapeHtml(c.authorName)}</span>
+              <span class="comment-date">${formatDate(c.createdAt)}${c.editedAt ? ' (edited)' : ''}</span>
+            </div>
+            <div class="comment-body">${escapeHtml(c.body)}</div>
+            ${c.authorId === currentUserId ? `
+              <div class="comment-actions">
+                <button type="button" class="link-btn" data-action="edit">Edit</button>
+                <button type="button" class="link-btn" data-action="delete">Delete</button>
+              </div>` : ''}
+          </div>`).join('');
+
+      listEl.querySelectorAll('.comment-item').forEach((item) => {
+        const comment = comments.find((c) => c.id === item.dataset.commentId);
+        const editBtn = item.querySelector('[data-action="edit"]');
+        const deleteBtn = item.querySelector('[data-action="delete"]');
+        if (editBtn) {
+          editBtn.addEventListener('click', () => startEditComment(workspace, project, issue, comment, item, listEl));
+        }
+        if (deleteBtn) {
+          deleteBtn.addEventListener('click', async () => {
+            if (!confirm('Delete this comment?')) return;
+            try {
+              await api('DELETE',
+                `/api/workspaces/${workspace.id}/projects/${project.id}/issues/${issue.id}/comments/${comment.id}`);
+              loadComments(workspace, project, issue, listEl);
+            } catch (err) {
+              toast(err.message);
+            }
+          });
+        }
+      });
+    } catch (err) {
+      listEl.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function startEditComment(workspace, project, issue, comment, itemEl, listEl) {
+    itemEl.innerHTML = `
+      <form class="comment-edit-form">
+        <textarea required>${escapeHtml(comment.body)}</textarea>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost btn-sm" data-action="cancel">Cancel</button>
+          <button type="submit" class="btn btn-sm">Save</button>
+        </div>
+      </form>`;
+    itemEl.querySelector('[data-action="cancel"]').addEventListener('click', () =>
+      loadComments(workspace, project, issue, listEl));
+    itemEl.querySelector('.comment-edit-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const bodyVal = itemEl.querySelector('textarea').value.trim();
+      try {
+        await api('PATCH',
+          `/api/workspaces/${workspace.id}/projects/${project.id}/issues/${issue.id}/comments/${comment.id}`,
+          { body: bodyVal });
+        loadComments(workspace, project, issue, listEl);
+      } catch (err) {
+        toast(err.message);
+      }
+    });
   }
 })();
