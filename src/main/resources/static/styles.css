@@ -248,6 +248,9 @@ button, input, select, textarea {
   box-shadow: var(--shadow);
 }
 .issue-card:hover { border-color: var(--accent); }
+.issue-card[draggable="true"] { cursor: grab; }
+.issue-card.dragging { opacity: 0.4; }
+.board-column.drag-over { background: #dde1ea; }
 .issue-card-key { font-size: 11px; color: var(--text-muted); font-weight: 700; }
 .issue-card-title { margin: 4px 0 8px; font-size: 13px; line-height: 1.35; }
 .issue-card-footer { display: flex; align-items: center; justify-content: space-between; }

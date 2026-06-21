@@ -3,6 +3,7 @@ package com.easytask.issue.service;
 import com.easytask.issue.dto.ChangeIssueStatusRequest;
 import com.easytask.issue.dto.CreateIssueRequest;
 import com.easytask.issue.dto.IssueResponse;
+import com.easytask.issue.dto.MoveIssueRequest;
 import com.easytask.issue.dto.UpdateIssueRequest;
 import com.easytask.issue.entity.Issue;
 import com.easytask.issue.entity.IssuePriority;
@@ -154,6 +155,52 @@ public class IssueService {
         issueRepository.saveAndFlush(issue);
 
         return toResponse(issue);
+    }
+
+    @Transactional
+    public IssueResponse moveIssue(User currentUser, UUID workspaceId, UUID projectId, UUID issueId,
+                                    MoveIssueRequest request) {
+        WorkspaceMember actingMembership = requireWorkspaceMembership(currentUser, workspaceId);
+        requireProject(workspaceId, projectId);
+        requireProjectWriteAccess(actingMembership, projectId, currentUser);
+
+        Issue issue = requireIssue(projectId, issueId);
+        ProjectIssueTypeStatus combination = projectIssueTypeStatusRepository
+                .findByProjectIssueType_IdAndStatus_Id(issue.getProjectIssueType().getId(), request.statusId())
+                .orElseThrow(InvalidIssueStatusException::new);
+        // resolved before any mutation, see comment in updateIssue
+        BigDecimal prevPos = resolveNeighborPosition(projectId, request.statusId(), request.prevIssueId());
+        BigDecimal nextPos = resolveNeighborPosition(projectId, request.statusId(), request.nextIssueId());
+        BigDecimal newPosition = betweenPosition(projectId, request.statusId(), prevPos, nextPos);
+
+        issue.setStatus(combination.getStatus());
+        issue.setPosition(newPosition);
+        issue.setUpdatedBy(currentUser);
+        issueRepository.saveAndFlush(issue);
+
+        return toResponse(issue);
+    }
+
+    private BigDecimal resolveNeighborPosition(UUID projectId, UUID statusId, UUID neighborIssueId) {
+        if (neighborIssueId == null) {
+            return null;
+        }
+        return issueRepository.findByIdAndProject_IdAndStatus_IdAndDeletedAtIsNull(neighborIssueId, projectId, statusId)
+                .orElseThrow(IssueNotFoundException::new)
+                .getPosition();
+    }
+
+    private BigDecimal betweenPosition(UUID projectId, UUID statusId, BigDecimal prevPos, BigDecimal nextPos) {
+        if (prevPos != null && nextPos != null) {
+            return prevPos.add(nextPos).divide(BigDecimal.valueOf(2));
+        }
+        if (prevPos != null) {
+            return prevPos.add(POSITION_GAP);
+        }
+        if (nextPos != null) {
+            return nextPos.divide(BigDecimal.valueOf(2));
+        }
+        return nextPosition(projectId, statusId);
     }
 
     private User resolveAssignee(UUID projectId, UUID assigneeId) {

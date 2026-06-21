@@ -14,6 +14,8 @@ public interface IssueRepository extends JpaRepository<Issue, UUID> {
 
     Optional<Issue> findByIdAndProject_IdAndDeletedAtIsNull(UUID id, UUID projectId);
 
+    Optional<Issue> findByIdAndProject_IdAndStatus_IdAndDeletedAtIsNull(UUID id, UUID projectId, UUID statusId);
+
     List<Issue> findByProject_IdAndDeletedAtIsNullOrderByNumber(UUID projectId);
 
     @Query("SELECT MAX(i.position) FROM Issue i WHERE i.project.id = :projectId AND i.status.id = :statusId AND i.deletedAt IS NULL")

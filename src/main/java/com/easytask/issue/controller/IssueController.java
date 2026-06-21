@@ -3,6 +3,7 @@ package com.easytask.issue.controller;
 import com.easytask.issue.dto.ChangeIssueStatusRequest;
 import com.easytask.issue.dto.CreateIssueRequest;
 import com.easytask.issue.dto.IssueResponse;
+import com.easytask.issue.dto.MoveIssueRequest;
 import com.easytask.issue.dto.UpdateIssueRequest;
 import com.easytask.auth.entity.User;
 import com.easytask.issue.service.IssueService;
@@ -71,5 +72,14 @@ public class IssueController {
                                        @PathVariable UUID issueId,
                                        @Valid @RequestBody ChangeIssueStatusRequest request) {
         return issueService.changeStatus(currentUser, workspaceId, projectId, issueId, request);
+    }
+
+    @PatchMapping("/{issueId}/move")
+    public IssueResponse move(@AuthenticationPrincipal User currentUser,
+                               @PathVariable UUID workspaceId,
+                               @PathVariable UUID projectId,
+                               @PathVariable UUID issueId,
+                               @Valid @RequestBody MoveIssueRequest request) {
+        return issueService.moveIssue(currentUser, workspaceId, projectId, issueId, request);
     }
 }

@@ -545,8 +545,9 @@
         ]);
         statuses.sort((a, b) => a.position - b.position);
         members.forEach((m) => { projectMembersCache[m.userId] = m.displayName; });
+        const canWrite = canWriteProject(workspace, project);
 
-        if (canWriteProject(workspace, project)) {
+        if (canWrite) {
           actions.innerHTML = '<button class="btn btn-sm" id="new-issue-btn">+ New issue</button>';
           actions.querySelector('#new-issue-btn').addEventListener('click', () =>
             openIssueModal(workspace, project, { statuses, issueTypes }, null));
@@ -571,7 +572,7 @@
                 <span class="board-column-count">${columnIssues.length}</span>
               </div>
               ${columnIssues.map((issue) => `
-                <div class="issue-card" data-issue-id="${issue.id}">
+                <div class="issue-card" data-issue-id="${issue.id}" ${canWrite ? 'draggable="true"' : ''}>
                   <div class="issue-card-key">${escapeHtml(issue.key)} · ${escapeHtml(issue.issueTypeName)}</div>
                   <div class="issue-card-title">${escapeHtml(issue.title)}</div>
                   <div class="issue-card-footer">
@@ -588,6 +589,41 @@
             openIssueModal(workspace, project, { statuses, issueTypes }, issue);
           });
         });
+
+        if (canWrite) {
+          board.querySelectorAll('.issue-card[draggable="true"]').forEach((card) => {
+            card.addEventListener('dragstart', (e) => {
+              e.dataTransfer.setData('text/plain', card.dataset.issueId);
+              card.classList.add('dragging');
+            });
+            card.addEventListener('dragend', () => card.classList.remove('dragging'));
+          });
+
+          board.querySelectorAll('.board-column').forEach((column) => {
+            column.addEventListener('dragover', (e) => {
+              e.preventDefault();
+              column.classList.add('drag-over');
+            });
+            column.addEventListener('dragleave', () => column.classList.remove('drag-over'));
+            column.addEventListener('drop', async (e) => {
+              e.preventDefault();
+              column.classList.remove('drag-over');
+              const draggedId = e.dataTransfer.getData('text/plain');
+              if (!draggedId) return;
+              const { prevIssueId, nextIssueId } = dropTarget(column, draggedId, e.clientY);
+              try {
+                await api('PATCH', `/api/workspaces/${workspace.id}/projects/${project.id}/issues/${draggedId}/move`, {
+                  statusId: column.dataset.statusId,
+                  prevIssueId,
+                  nextIssueId,
+                });
+                renderProjectTab(workspace, project, 'board');
+              } catch (err) {
+                toast(err.message);
+              }
+            });
+          });
+        }
       } else {
         const members = await api('GET', `/api/workspaces/${workspace.id}/projects/${project.id}/members`);
         if (canManageProject(workspace, project)) {
@@ -612,6 +648,22 @@
     } catch (err) {
       content.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
     }
+  }
+
+  function dropTarget(column, draggedId, clientY) {
+    const cards = Array.from(column.querySelectorAll('.issue-card')).filter((el) => el.dataset.issueId !== draggedId);
+    let index = cards.length;
+    for (let i = 0; i < cards.length; i++) {
+      const rect = cards[i].getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) {
+        index = i;
+        break;
+      }
+    }
+    return {
+      prevIssueId: index > 0 ? cards[index - 1].dataset.issueId : null,
+      nextIssueId: index < cards.length ? cards[index].dataset.issueId : null,
+    };
   }
 
   // simple in-memory cache so issue cards/modals can show an assignee's email without another round trip
