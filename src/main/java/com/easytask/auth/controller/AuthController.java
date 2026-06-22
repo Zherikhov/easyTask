@@ -1,5 +1,6 @@
 package com.easytask.auth.controller;
 
+import com.easytask.auth.dto.AcceptInviteRequest;
 import com.easytask.auth.dto.AuthResponse;
 import com.easytask.auth.dto.LoginRequest;
 import com.easytask.auth.dto.RegisterRequest;
@@ -30,5 +31,10 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(authService.login(request));
+    }
+
+    @PostMapping("/accept-invite")
+    public ResponseEntity<AuthResponse> acceptInvite(@Valid @RequestBody AcceptInviteRequest request) {
+        return ResponseEntity.ok(authService.acceptInvite(request));
     }
 }

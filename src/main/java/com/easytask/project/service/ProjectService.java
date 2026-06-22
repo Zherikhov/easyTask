@@ -130,7 +130,7 @@ public class ProjectService {
         return projectMemberRepository.findByProject_Id(projectId).stream()
                 .map(m -> new ProjectMemberResponse(
                         m.getUser().getId(), m.getUser().getEmail(), m.getUser().getDisplayName(),
-                        m.getRole(), m.getCreatedAt()))
+                        m.getRole(), m.getUser().getStatus(), m.getCreatedAt()))
                 .toList();
     }
 
@@ -165,7 +165,7 @@ public class ProjectService {
         projectMemberRepository.saveAndFlush(membership);
 
         return new ProjectMemberResponse(targetUser.getId(), targetUser.getEmail(),
-                targetUser.getDisplayName(), membership.getRole(), membership.getCreatedAt());
+                targetUser.getDisplayName(), membership.getRole(), targetUser.getStatus(), membership.getCreatedAt());
     }
 
     @Transactional(readOnly = true)

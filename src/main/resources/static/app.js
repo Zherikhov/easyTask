@@ -126,6 +126,12 @@
     return `<span class="${cls}">${escapeHtml(priority)}</span>`;
   }
 
+  function statusBadge(status) {
+    if (!status || status === 'ACTIVE') return '';
+    const cls = `badge badge-status-${status.toLowerCase()}`;
+    return `<span class="${cls}">${escapeHtml(status)}</span>`;
+  }
+
   function canManageWorkspace(workspace) {
     return workspace.myRole === 'OWNER' || workspace.myRole === 'ADMIN';
   }
@@ -149,6 +155,7 @@
   const ROUTES = [
     { pattern: /^\/login$/, view: renderLogin },
     { pattern: /^\/register$/, view: renderRegister },
+    { pattern: /^\/accept-invite\/([^/]+)$/, view: renderAcceptInvite },
     { pattern: /^\/workspaces$/, view: renderWorkspaces },
     { pattern: /^\/w\/([^/]+)$/, view: renderWorkspaceDetail },
     { pattern: /^\/w\/([^/]+)\/p\/([^/]+)$/, view: renderProjectDetail },
@@ -157,13 +164,14 @@
   async function route() {
     const path = currentRoute();
     const token = getToken();
-    const isAuthRoute = path === '/login' || path === '/register';
+    const isInviteRoute = path.startsWith('/accept-invite/');
+    const isAuthRoute = path === '/login' || path === '/register' || isInviteRoute;
 
     if (!token && !isAuthRoute) {
       location.hash = '#/login';
       return;
     }
-    if (token && isAuthRoute) {
+    if (token && isAuthRoute && !isInviteRoute) {
       location.hash = '#/workspaces';
       return;
     }
@@ -228,7 +236,7 @@
       errorEl.textContent = '';
       try {
         const res = await api('POST', '/api/auth/login', { email, password });
-        setSession(res.token, email);
+        setSession(res.token, res.email);
         location.hash = '#/workspaces';
       } catch (err) {
         errorEl.textContent = err.message;
@@ -273,7 +281,43 @@
       errorEl.textContent = '';
       try {
         const res = await api('POST', '/api/auth/register', { email, password, displayName });
-        setSession(res.token, email);
+        setSession(res.token, res.email);
+        location.hash = '#/workspaces';
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+  }
+
+  function renderAcceptInvite(token) {
+    appRoot.innerHTML = `
+      <div class="auth-shell">
+        <h1 class="auth-title">Accept invite</h1>
+        <p class="auth-subtitle">Set a password to activate your account</p>
+        <form id="accept-invite-form">
+          <div class="field">
+            <label for="displayName">Display name</label>
+            <input id="displayName" type="text" maxlength="120" placeholder="Optional, leave blank to keep the current one">
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <input id="password" type="password" required minlength="8" autocomplete="new-password">
+            <span class="field-hint">At least 8 characters.</span>
+          </div>
+          <p class="error-text" id="form-error"></p>
+          <button type="submit" class="btn btn-block">Activate account</button>
+        </form>
+      </div>`;
+
+    document.getElementById('accept-invite-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const displayName = document.getElementById('displayName').value.trim();
+      const password = document.getElementById('password').value;
+      const errorEl = document.getElementById('form-error');
+      errorEl.textContent = '';
+      try {
+        const res = await api('POST', '/api/auth/accept-invite', { token, password, displayName: displayName || null });
+        setSession(res.token, res.email);
         location.hash = '#/workspaces';
       } catch (err) {
         errorEl.textContent = err.message;
@@ -393,13 +437,14 @@
         content.innerHTML = `
           ${canManage ? '<div class="row" style="justify-content:flex-end;margin-bottom:10px;"><button class="btn btn-sm" id="add-member-btn">+ Add member</button></div>' : ''}
           <table class="table">
-            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Joined</th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Joined</th></tr></thead>
             <tbody>
               ${members.map((m) => `
                 <tr>
                   <td>${escapeHtml(m.displayName)}</td>
                   <td>${escapeHtml(m.email)}</td>
                   <td>${roleBadge(m.role)}</td>
+                  <td>${statusBadge(m.status)}</td>
                   <td>${formatDate(m.createdAt)}</td>
                 </tr>`).join('')}
             </tbody>
@@ -459,7 +504,12 @@
         <div class="field">
           <label for="m-email">Email</label>
           <input id="m-email" type="email" required>
-          <span class="field-hint">The user must already have an easyTask account.</span>
+          <span class="field-hint">If this email has no easyTask account yet, one will be created as a pending invite.</span>
+        </div>
+        <div class="field">
+          <label for="m-display-name">Display name</label>
+          <input id="m-display-name" type="text" maxlength="120">
+          <span class="field-hint">Only used when inviting a brand-new user. Ignored for existing accounts.</span>
         </div>
         <div class="field">
           <label for="m-role">Role</label>
@@ -479,15 +529,42 @@
     body.querySelector('#add-member-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('m-email').value.trim();
+      const displayName = document.getElementById('m-display-name').value.trim();
       const role = document.getElementById('m-role').value;
       const errorEl = document.getElementById('form-error');
       try {
-        await api('POST', `/api/workspaces/${workspace.id}/members`, { email, role });
+        const member = await api('POST', `/api/workspaces/${workspace.id}/members`, { email, role, displayName: displayName || null });
         closeModal();
-        toast('Member added', 'success');
+        if (member.inviteToken) {
+          showInviteLinkModal(member.email, member.inviteToken);
+        } else {
+          toast('Member added', 'success');
+        }
         renderWorkspaceTab(workspace, 'members');
       } catch (err) {
         errorEl.textContent = err.message;
+      }
+    });
+  }
+
+  function showInviteLinkModal(email, inviteToken) {
+    const link = `${location.origin}/#/accept-invite/${inviteToken}`;
+    const body = openModal('Invite created', `
+      <p>${escapeHtml(email)} doesn't have an account yet. Share this link with them to set a password and join:</p>
+      <div class="field">
+        <input id="invite-link" type="text" readonly value="${escapeHtml(link)}">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="copy-link-btn">Copy link</button>
+        <button type="button" class="btn" id="close-invite-btn">Done</button>
+      </div>`);
+    body.querySelector('#close-invite-btn').addEventListener('click', closeModal);
+    body.querySelector('#copy-link-btn').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(link);
+        toast('Link copied', 'success');
+      } catch {
+        body.querySelector('#invite-link').select();
       }
     });
   }
@@ -633,13 +710,14 @@
         }
         content.innerHTML = `
           <table class="table">
-            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Joined</th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Joined</th></tr></thead>
             <tbody>
               ${members.map((m) => `
                 <tr>
                   <td>${escapeHtml(m.displayName)}</td>
                   <td>${escapeHtml(m.email)}</td>
                   <td>${roleBadge(m.role)}</td>
+                  <td>${statusBadge(m.status)}</td>
                   <td>${formatDate(m.createdAt)}</td>
                 </tr>`).join('')}
             </tbody>

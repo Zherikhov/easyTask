@@ -1,4 +1,4 @@
 package com.easytask.auth.dto;
 
-public record AuthResponse(String token) {
+public record AuthResponse(String token, String email) {
 }

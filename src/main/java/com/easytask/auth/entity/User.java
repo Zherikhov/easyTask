@@ -32,4 +32,10 @@ public class User extends BaseEntity {
 
     @Column(name = "email_verified_at")
     private OffsetDateTime emailVerifiedAt;
+
+    @Column(name = "invite_token", length = 36)
+    private String inviteToken;
+
+    @Column(name = "invite_token_expires_at")
+    private OffsetDateTime inviteTokenExpiresAt;
 }

@@ -187,6 +187,9 @@ button, input, select, textarea {
 .badge-role-member { background: #f3f4f6; color: #374151; }
 .badge-role-viewer { background: #fef3c7; color: #92400e; }
 
+.badge-status-pending { background: #fef9c3; color: #854d0e; }
+.badge-status-disabled { background: #fee2e2; color: #991b1b; }
+
 .badge-priority-low { background: #f3f4f6; color: #374151; }
 .badge-priority-medium { background: #fef9c3; color: #854d0e; }
 .badge-priority-high { background: #fee2e2; color: #991b1b; }

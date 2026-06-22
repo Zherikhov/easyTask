@@ -5,13 +5,14 @@ import com.easytask.workspace.dto.CreateWorkspaceRequest;
 import com.easytask.workspace.dto.WorkspaceMemberResponse;
 import com.easytask.workspace.dto.WorkspaceResponse;
 import com.easytask.auth.entity.User;
+import com.easytask.auth.entity.UserStatus;
+import com.easytask.auth.service.AuthService;
 import com.easytask.workspace.entity.Workspace;
 import com.easytask.workspace.entity.WorkspaceMember;
 import com.easytask.workspace.entity.WorkspaceRole;
 import com.easytask.workspace.exception.AlreadyWorkspaceMemberException;
 import com.easytask.workspace.exception.InsufficientWorkspaceRoleException;
 import com.easytask.workspace.exception.InvalidWorkspaceRoleException;
-import com.easytask.common.exception.UserNotFoundException;
 import com.easytask.workspace.exception.WorkspaceNotFoundException;
 import com.easytask.auth.repository.UserRepository;
 import com.easytask.workspace.repository.WorkspaceMemberRepository;
@@ -29,13 +30,16 @@ public class WorkspaceService {
     private final WorkspaceRepository workspaceRepository;
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final UserRepository userRepository;
+    private final AuthService authService;
 
     public WorkspaceService(WorkspaceRepository workspaceRepository,
                              WorkspaceMemberRepository workspaceMemberRepository,
-                             UserRepository userRepository) {
+                             UserRepository userRepository,
+                             AuthService authService) {
         this.workspaceRepository = workspaceRepository;
         this.workspaceMemberRepository = workspaceMemberRepository;
         this.userRepository = userRepository;
+        this.authService = authService;
     }
 
     @Transactional
@@ -75,7 +79,7 @@ public class WorkspaceService {
         return workspaceMemberRepository.findByWorkspace_Id(workspaceId).stream()
                 .map(m -> new WorkspaceMemberResponse(
                         m.getUser().getId(), m.getUser().getEmail(), m.getUser().getDisplayName(),
-                        m.getRole(), m.getCreatedAt()))
+                        m.getRole(), m.getUser().getStatus(), m.getCreatedAt(), null))
                 .toList();
     }
 
@@ -90,7 +94,7 @@ public class WorkspaceService {
         }
 
         User targetUser = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> new UserNotFoundException(request.email()));
+                .orElseGet(() -> authService.createPendingUser(request.email(), request.displayName()));
 
         if (workspaceMemberRepository.existsByWorkspace_IdAndUser_Id(workspaceId, targetUser.getId())) {
             throw new AlreadyWorkspaceMemberException();
@@ -103,8 +107,10 @@ public class WorkspaceService {
         membership.setInvitedBy(currentUser);
         workspaceMemberRepository.saveAndFlush(membership);
 
+        String inviteTokenToReturn = targetUser.getStatus() == UserStatus.PENDING ? targetUser.getInviteToken() : null;
         return new WorkspaceMemberResponse(targetUser.getId(), targetUser.getEmail(),
-                targetUser.getDisplayName(), membership.getRole(), membership.getCreatedAt());
+                targetUser.getDisplayName(), membership.getRole(), targetUser.getStatus(),
+                membership.getCreatedAt(), inviteTokenToReturn);
     }
 
     private WorkspaceMember requireMembership(User currentUser, UUID workspaceId) {

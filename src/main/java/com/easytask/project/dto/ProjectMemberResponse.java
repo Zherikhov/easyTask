@@ -1,5 +1,6 @@
 package com.easytask.project.dto;
 
+import com.easytask.auth.entity.UserStatus;
 import com.easytask.project.entity.ProjectRole;
 
 import java.time.OffsetDateTime;
@@ -10,6 +11,7 @@ public record ProjectMemberResponse(
         String email,
         String displayName,
         ProjectRole role,
+        UserStatus status,
         OffsetDateTime createdAt
 ) {
 }

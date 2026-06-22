@@ -1,5 +1,6 @@
 package com.easytask.workspace.dto;
 
+import com.easytask.auth.entity.UserStatus;
 import com.easytask.workspace.entity.WorkspaceRole;
 
 import java.time.OffsetDateTime;
@@ -10,6 +11,8 @@ public record WorkspaceMemberResponse(
         String email,
         String displayName,
         WorkspaceRole role,
-        OffsetDateTime createdAt
+        UserStatus status,
+        OffsetDateTime createdAt,
+        String inviteToken
 ) {
 }

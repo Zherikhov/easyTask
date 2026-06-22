@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### gstack (Claude Code skills tool, not part of this project) ###
+.gstack/
