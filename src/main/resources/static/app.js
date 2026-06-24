@@ -1,11 +1,15 @@
 (() => {
   const appRoot = document.getElementById('app-root');
-  const appHeader = document.getElementById('app-header');
+  const topbar = document.getElementById('topbar');
   const breadcrumbsEl = document.getElementById('breadcrumbs');
-  const currentUserEl = document.getElementById('current-user');
   const modalRoot = document.getElementById('modal-root');
   const toastRoot = document.getElementById('toast-root');
   const logoutBtn = document.getElementById('logout-btn');
+  const themeToggleBtn = document.getElementById('theme-toggle');
+  const profileChip = document.getElementById('profile-chip');
+  const profileMenu = document.getElementById('profile-menu');
+  const profileAvatar = document.getElementById('profile-avatar');
+  const profileName = document.getElementById('profile-name');
 
   // ---------- helpers ----------
 
@@ -144,6 +148,49 @@
     return workspace.myRole !== 'MEMBER' || (project.myRole && project.myRole !== 'VIEWER');
   }
 
+  function initials(label) {
+    if (!label) return '?';
+    const parts = label.replace(/@.*$/, '').split(/[.\s_-]+/).filter(Boolean);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+
+  // ---------- theme ----------
+
+  const THEME_KEY = 'et_theme';
+
+  function effectiveTheme() {
+    return localStorage.getItem(THEME_KEY) ||
+      (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    themeToggleBtn.dataset.mode = theme;
+    themeToggleBtn.setAttribute('aria-pressed', String(theme === 'dark'));
+  }
+
+  themeToggleBtn.addEventListener('click', () => {
+    const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+    localStorage.setItem(THEME_KEY, next);
+    applyTheme(next);
+  });
+
+  applyTheme(effectiveTheme());
+
+  // ---------- profile menu ----------
+
+  profileChip.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isHidden = profileMenu.classList.contains('hidden');
+    profileMenu.classList.toggle('hidden', !isHidden);
+    profileChip.setAttribute('aria-expanded', String(isHidden));
+  });
+  document.addEventListener('click', () => {
+    profileMenu.classList.add('hidden');
+    profileChip.setAttribute('aria-expanded', 'false');
+  });
+
   // ---------- router ----------
 
   function currentRoute() {
@@ -176,8 +223,12 @@
       return;
     }
 
-    appHeader.classList.toggle('hidden', !token);
-    if (token) currentUserEl.textContent = getEmail() || '';
+    topbar.classList.toggle('hidden', !token);
+    if (token) {
+      const email = getEmail() || '';
+      profileAvatar.textContent = initials(email);
+      profileName.textContent = email.replace(/@.*$/, '');
+    }
     breadcrumbsEl.innerHTML = '';
 
     for (const r of ROUTES) {
@@ -585,32 +636,39 @@
     ]);
 
     appRoot.innerHTML = `
-      <div class="page-header">
-        <div>
-          <h1>${escapeHtml(project.key)} · ${escapeHtml(project.name)} ${project.myRole ? roleBadge(project.myRole) : ''}</h1>
-          <div class="subtitle">${escapeHtml(project.description || '')}</div>
+      <div class="project-shell">
+        <aside class="app-sidebar" aria-label="Project navigation">
+          <nav>
+            <button class="nav-item" id="nav-board" type="button">Board</button>
+            <span class="nav-item nav-item-disabled" title="Coming soon">Issues</span>
+            <span class="nav-item nav-item-disabled" title="Coming soon">Reports</span>
+            <span class="nav-item nav-item-disabled" title="Coming soon">Process rules</span>
+          </nav>
+        </aside>
+        <div class="project-main">
+          <div class="project-main-header">
+            <div>
+              <h1>${escapeHtml(project.key)} · ${escapeHtml(project.name)} ${project.myRole ? roleBadge(project.myRole) : ''}</h1>
+              <div class="subtitle">${escapeHtml(project.description || '')}</div>
+            </div>
+            <div id="board-actions" class="row"></div>
+          </div>
+          <div id="tab-content"></div>
         </div>
-        <div id="board-actions"></div>
-      </div>
-      <div class="tabs">
-        <button class="tab ${activeTab === 'board' ? 'active' : ''}" id="tab-board">Board</button>
-        <button class="tab ${activeTab === 'members' ? 'active' : ''}" id="tab-members">Members</button>
-      </div>
-      <div id="tab-content"></div>`;
+      </div>`;
 
-    document.getElementById('tab-board').addEventListener('click', () => renderProjectTab(workspace, project, 'board'));
-    document.getElementById('tab-members').addEventListener('click', () => renderProjectTab(workspace, project, 'members'));
+    document.getElementById('nav-board').addEventListener('click', () => renderProjectTab(workspace, project, 'board'));
 
     await renderProjectTab(workspace, project, activeTab);
   }
 
   async function renderProjectTab(workspace, project, tab) {
-    document.getElementById('tab-board').classList.toggle('active', tab === 'board');
-    document.getElementById('tab-members').classList.toggle('active', tab === 'members');
+    document.getElementById('nav-board').classList.toggle('active', tab === 'board');
     const content = document.getElementById('tab-content');
     const actions = document.getElementById('board-actions');
     content.innerHTML = '<div class="loading">Loading…</div>';
-    actions.innerHTML = '';
+    actions.innerHTML = '<button class="btn btn-ghost btn-sm" id="members-link-btn" type="button">Members</button>';
+    actions.querySelector('#members-link-btn').addEventListener('click', () => renderProjectTab(workspace, project, 'members'));
 
     try {
       if (tab === 'board') {
@@ -625,7 +683,7 @@
         const canWrite = canWriteProject(workspace, project);
 
         if (canWrite) {
-          actions.innerHTML = '<button class="btn btn-sm" id="new-issue-btn">+ New issue</button>';
+          actions.insertAdjacentHTML('beforeend', '<button class="btn btn-sm" id="new-issue-btn">+ New issue</button>');
           actions.querySelector('#new-issue-btn').addEventListener('click', () =>
             openIssueModal(workspace, project, { statuses, issueTypes }, null));
         }
@@ -654,7 +712,7 @@
                   <div class="issue-card-title">${escapeHtml(issue.title)}</div>
                   <div class="issue-card-footer">
                     ${priorityBadge(issue.priority)}
-                    ${issue.assigneeId ? `<span class="assignee-chip">${escapeHtml(memberLabel(workspace, issue.assigneeId))}</span>` : ''}
+                    ${issue.assigneeId ? `<span class="avatar" title="${escapeHtml(memberLabel(workspace, issue.assigneeId))}">${escapeHtml(initials(memberLabel(workspace, issue.assigneeId)))}</span>` : ''}
                   </div>
                 </div>`).join('')}
             </div>`;
@@ -704,7 +762,7 @@
       } else {
         const members = await api('GET', `/api/workspaces/${workspace.id}/projects/${project.id}/members`);
         if (canManageProject(workspace, project)) {
-          actions.innerHTML = '<button class="btn btn-sm" id="add-project-member-btn">+ Add member</button>';
+          actions.insertAdjacentHTML('beforeend', '<button class="btn btn-sm" id="add-project-member-btn">+ Add member</button>');
           actions.querySelector('#add-project-member-btn').addEventListener('click', () =>
             openAddProjectMemberModal(workspace, project));
         }

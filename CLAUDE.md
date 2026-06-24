@@ -70,6 +70,10 @@ Within a feature, `controller` use `@AuthenticationPrincipal User` (from `auth.e
 
 Schema is managed entirely by Flyway (`src/main/resources/db/migration/V1__init_schema.sql`); `spring.jpa.hibernate.ddl-auto=validate` only checks the JPA mapping against it, never generates DDL. `spring.jpa.open-in-view=false` — any service method that touches a lazy association after its repository call returns needs its own `@Transactional`/`@Transactional(readOnly = true)`, or it throws `LazyInitializationException`.
 
+## Design System
+
+Always read DESIGN.md before making any visual or UI decisions. All font choices, colors, spacing, and aesthetic direction are defined there. Do not deviate without explicit user approval. In QA mode, flag any code that doesn't match DESIGN.md.
+
 ### Gotchas already hit once — don't re-debug these
 
 - **`createdAt`/`updatedAt` read as `null` right after `save()`**: those columns are DB-owned (`insertable/updatable = false`) and Hibernate only refetches them via `@Generated` when the `INSERT`/`UPDATE` actually executes — which, without write-behind flushing, happens at transaction commit, *after* your method already built its response. Use `repository.saveAndFlush(entity)` when the response needs the value immediately.
