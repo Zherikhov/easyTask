@@ -102,6 +102,34 @@
 
   function closeModal() { modalRoot.innerHTML = ''; }
 
+  function openPanel(title, bodyHtml) {
+    modalRoot.innerHTML = `
+      <div class="panel-backdrop" id="panel-backdrop">
+        <aside class="side-panel" role="dialog" aria-modal="true">
+          <div class="modal-header">
+            <h3>${escapeHtml(title)}</h3>
+            <button class="modal-close" id="panel-close" aria-label="Close">&times;</button>
+          </div>
+          <div class="modal-body">${bodyHtml}</div>
+        </aside>
+      </div>`;
+    document.getElementById('panel-backdrop').addEventListener('click', (e) => {
+      if (e.target.id === 'panel-backdrop') closePanel();
+    });
+    document.getElementById('panel-close').addEventListener('click', closePanel);
+    const panel = modalRoot.querySelector('.side-panel');
+    requestAnimationFrame(() => panel.classList.add('open'));
+    return modalRoot.querySelector('.modal-body');
+  }
+
+  function closePanel() {
+    const backdrop = document.getElementById('panel-backdrop');
+    if (!backdrop) return;
+    const panel = backdrop.querySelector('.side-panel');
+    panel.classList.remove('open');
+    setTimeout(() => { if (modalRoot.contains(backdrop)) modalRoot.innerHTML = ''; }, 220);
+  }
+
   function setBreadcrumbs(parts) {
     breadcrumbsEl.innerHTML = parts.map((p, i) => {
       const isLast = i === parts.length - 1;
@@ -685,7 +713,7 @@
         if (canWrite) {
           actions.insertAdjacentHTML('beforeend', '<button class="btn btn-sm" id="new-issue-btn">+ New issue</button>');
           actions.querySelector('#new-issue-btn').addEventListener('click', () =>
-            openIssueModal(workspace, project, { statuses, issueTypes }, null));
+            openIssuePanel(workspace, project, { statuses, issueTypes }, null));
         }
 
         content.innerHTML = `<div class="board" id="board"></div>`;
@@ -721,7 +749,7 @@
         board.querySelectorAll('.issue-card').forEach((card) => {
           card.addEventListener('click', async () => {
             const issue = issues.find((i) => i.id === card.dataset.issueId);
-            openIssueModal(workspace, project, { statuses, issueTypes }, issue);
+            openIssuePanel(workspace, project, { statuses, issueTypes }, issue);
           });
         });
 
@@ -849,65 +877,17 @@
     });
   }
 
-  // ---------- issue modal (create / edit) ----------
+  // ---------- issue panel (view / edit / create) ----------
 
-  async function openIssueModal(workspace, project, { statuses, issueTypes }, issue) {
-    const isEdit = !!issue;
+  async function openIssuePanel(workspace, project, { issueTypes }, issue) {
+    const isCreate = !issue;
+    const canWrite = canWriteProject(workspace, project);
     const members = await api('GET', `/api/workspaces/${workspace.id}/projects/${project.id}/members`);
     members.forEach((m) => { projectMembersCache[m.userId] = m.displayName; });
 
-    const assigneeOptions = ['<option value="">Unassigned</option>']
-      .concat(members.map((m) => `<option value="${m.userId}" ${issue && issue.assigneeId === m.userId ? 'selected' : ''}>${escapeHtml(m.displayName)}</option>`))
-      .join('');
-
-    const typeOptions = issueTypes.map((t) =>
-      `<option value="${t.id}" ${issue && issue.projectIssueTypeId === t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('');
-
-    const priorities = ['LOW', 'MEDIUM', 'HIGH'];
-    const priorityOptions = priorities.map((p) =>
-      `<option value="${p}" ${issue ? (issue.priority === p ? 'selected' : '') : (p === 'MEDIUM' ? 'selected' : '')}>${p}</option>`).join('');
-
-    const canWrite = canWriteProject(workspace, project);
-    const title = isEdit ? `${issue.key}` : 'New issue';
-
-    const body = openModal(title, `
-      <form id="issue-form">
-        ${isEdit ? `
-          <div class="field">
-            <label for="issue-status">Status</label>
-            <select id="issue-status" ${canWrite ? '' : 'disabled'}></select>
-          </div>` : `
-          <div class="field">
-            <label for="issue-type">Type</label>
-            <select id="issue-type" required>${typeOptions}</select>
-          </div>`}
-        <div class="field">
-          <label for="issue-title">Title</label>
-          <input id="issue-title" type="text" required maxlength="255" value="${escapeHtml(issue ? issue.title : '')}" ${canWrite ? '' : 'disabled'}>
-        </div>
-        <div class="field">
-          <label for="issue-desc">Description</label>
-          <textarea id="issue-desc" ${canWrite ? '' : 'disabled'}>${escapeHtml(issue ? issue.description : '')}</textarea>
-        </div>
-        <div class="field">
-          <label for="issue-priority">Priority</label>
-          <select id="issue-priority" ${canWrite ? '' : 'disabled'}>${priorityOptions}</select>
-        </div>
-        <div class="field">
-          <label for="issue-assignee">Assignee</label>
-          <select id="issue-assignee" ${canWrite ? '' : 'disabled'}>${assigneeOptions}</select>
-        </div>
-        <div class="field">
-          <label for="issue-due">Due date</label>
-          <input id="issue-due" type="date" value="${issue && issue.dueDate ? issue.dueDate : ''}" ${canWrite ? '' : 'disabled'}>
-        </div>
-        <p class="error-text" id="form-error"></p>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-ghost" id="cancel-btn">Close</button>
-          ${canWrite ? `<button type="submit" class="btn">${isEdit ? 'Save' : 'Create'}</button>` : ''}
-        </div>
-      </form>
-      ${isEdit ? `
+    const body = openPanel(isCreate ? 'New issue' : issue.key, `
+      <div id="issue-area"></div>
+      ${!isCreate ? `
         <div class="comments-section">
           <h4>Comments</h4>
           <div id="comments-list" class="comments-list"></div>
@@ -923,49 +903,62 @@
           <h4>History</h4>
           <div id="history-list" class="history-list"></div>
         </div>` : ''}`);
+    const area = body.querySelector('#issue-area');
 
-    body.querySelector('#cancel-btn').addEventListener('click', () => {
-      closeModal();
+    const statusOptions = isCreate ? [] : await api('GET',
+      `/api/workspaces/${workspace.id}/projects/${project.id}/issue-types/${issue.projectIssueTypeId}/status-options`);
+
+    function closeAndRefresh() {
+      closePanel();
       renderProjectTab(workspace, project, 'board');
-    });
+    }
 
-    if (isEdit) {
-      const statusSelect = document.getElementById('issue-status');
-      const options = await api('GET',
-        `/api/workspaces/${workspace.id}/projects/${project.id}/issue-types/${issue.projectIssueTypeId}/status-options`);
-      statusSelect.innerHTML = options.map((s) =>
+    function assigneeOptionsHtml(selectedId) {
+      return ['<option value="">Unassigned</option>']
+        .concat(members.map((m) => `<option value="${m.userId}" ${selectedId === m.userId ? 'selected' : ''}>${escapeHtml(m.displayName)}</option>`))
+        .join('');
+    }
+
+    function priorityOptionsHtml(selected) {
+      return ['LOW', 'MEDIUM', 'HIGH'].map((p) =>
+        `<option value="${p}" ${p === selected ? 'selected' : ''}>${p}</option>`).join('');
+    }
+
+    function renderView() {
+      area.innerHTML = `
+        <div class="issue-view-top">
+          ${priorityBadge(issue.priority)}
+          <span class="issue-view-type">${escapeHtml(issue.issueTypeName)}</span>
+        </div>
+        <h2 class="issue-view-title">${escapeHtml(issue.title)}</h2>
+        <p class="issue-view-desc">${issue.description ? escapeHtml(issue.description) : '<span class="issue-view-empty">No description.</span>'}</p>
+        <div class="issue-view-meta">
+          <div class="issue-view-meta-row"><span class="issue-view-meta-label">Assignee</span><span>${issue.assigneeId ? escapeHtml(memberLabel(workspace, issue.assigneeId)) : 'Unassigned'}</span></div>
+          <div class="issue-view-meta-row"><span class="issue-view-meta-label">Due date</span><span>${issue.dueDate ? formatDate(issue.dueDate) : '—'}</span></div>
+        </div>
+        <div class="field">
+          <label for="issue-status">Status</label>
+          <select id="issue-status" ${canWrite ? '' : 'disabled'}></select>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="close-btn">Close</button>
+          ${canWrite ? '<button type="button" class="btn" id="edit-btn">Edit</button>' : ''}
+        </div>`;
+
+      const statusSelect = area.querySelector('#issue-status');
+      statusSelect.innerHTML = statusOptions.map((s) =>
         `<option value="${s.id}" ${s.id === issue.statusId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
 
-      const historyList = document.getElementById('history-list');
-      loadHistory(workspace, project, issue, historyList);
-
+      area.querySelector('#close-btn').addEventListener('click', closeAndRefresh);
       if (canWrite) {
+        area.querySelector('#edit-btn').addEventListener('click', renderEdit);
         statusSelect.addEventListener('change', async () => {
           try {
             await api('PATCH', `/api/workspaces/${workspace.id}/projects/${project.id}/issues/${issue.id}/status`,
               { statusId: statusSelect.value });
+            issue.statusId = statusSelect.value;
             toast('Status updated', 'success');
-            loadHistory(workspace, project, issue, historyList);
-          } catch (err) {
-            toast(err.message);
-          }
-        });
-      }
-
-      const commentsList = document.getElementById('comments-list');
-      loadComments(workspace, project, issue, commentsList);
-
-      const commentForm = document.getElementById('comment-form');
-      if (commentForm) {
-        commentForm.addEventListener('submit', async (e) => {
-          e.preventDefault();
-          const textarea = document.getElementById('comment-body');
-          const bodyVal = textarea.value.trim();
-          if (!bodyVal) return;
-          try {
-            await api('POST', `/api/workspaces/${workspace.id}/projects/${project.id}/issues/${issue.id}/comments`, { body: bodyVal });
-            textarea.value = '';
-            loadComments(workspace, project, issue, commentsList);
+            loadHistory(workspace, project, issue, document.getElementById('history-list'));
           } catch (err) {
             toast(err.message);
           }
@@ -973,41 +966,150 @@
       }
     }
 
-    if (canWrite) {
-      body.querySelector('#issue-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const errorEl = document.getElementById('form-error');
-        const titleVal = document.getElementById('issue-title').value.trim();
-        const descVal = document.getElementById('issue-desc').value.trim();
-        const priorityVal = document.getElementById('issue-priority').value;
-        const assigneeVal = document.getElementById('issue-assignee').value || null;
-        const dueVal = document.getElementById('issue-due').value || null;
+    function renderEdit() {
+      area.innerHTML = `
+        <form id="issue-form">
+          <div class="field">
+            <label for="issue-title">Title</label>
+            <input id="issue-title" type="text" required maxlength="255" value="${escapeHtml(issue.title)}">
+          </div>
+          <div class="field">
+            <label for="issue-desc">Description</label>
+            <textarea id="issue-desc">${escapeHtml(issue.description || '')}</textarea>
+          </div>
+          <div class="field">
+            <label for="issue-priority">Priority</label>
+            <select id="issue-priority">${priorityOptionsHtml(issue.priority)}</select>
+          </div>
+          <div class="field">
+            <label for="issue-assignee">Assignee</label>
+            <select id="issue-assignee">${assigneeOptionsHtml(issue.assigneeId)}</select>
+          </div>
+          <div class="field">
+            <label for="issue-due">Due date</label>
+            <input id="issue-due" type="date" value="${issue.dueDate || ''}">
+          </div>
+          <p class="error-text" id="form-error"></p>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="cancel-edit-btn">Cancel</button>
+            <button type="submit" class="btn">Save</button>
+          </div>
+        </form>`;
 
+      area.querySelector('#cancel-edit-btn').addEventListener('click', renderView);
+      area.querySelector('#issue-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errorEl = area.querySelector('#form-error');
+        const titleVal = area.querySelector('#issue-title').value.trim();
+        const descVal = area.querySelector('#issue-desc').value.trim();
+        const priorityVal = area.querySelector('#issue-priority').value;
+        const assigneeVal = area.querySelector('#issue-assignee').value || null;
+        const dueVal = area.querySelector('#issue-due').value || null;
         try {
-          if (isEdit) {
-            await api('PATCH', `/api/workspaces/${workspace.id}/projects/${project.id}/issues/${issue.id}`, {
-              title: titleVal,
-              description: descVal || null,
-              priority: priorityVal,
-              assigneeId: assigneeVal,
-              dueDate: dueVal,
-            });
-          } else {
-            const typeVal = document.getElementById('issue-type').value;
-            await api('POST', `/api/workspaces/${workspace.id}/projects/${project.id}/issues`, {
-              projectIssueTypeId: typeVal,
-              title: titleVal,
-              description: descVal || null,
-              priority: priorityVal,
-              assigneeId: assigneeVal,
-              dueDate: dueVal,
-            });
-          }
-          closeModal();
-          toast(isEdit ? 'Issue updated' : 'Issue created', 'success');
-          renderProjectTab(workspace, project, 'board');
+          await api('PATCH', `/api/workspaces/${workspace.id}/projects/${project.id}/issues/${issue.id}`, {
+            title: titleVal,
+            description: descVal || null,
+            priority: priorityVal,
+            assigneeId: assigneeVal,
+            dueDate: dueVal,
+          });
+          issue.title = titleVal;
+          issue.description = descVal;
+          issue.priority = priorityVal;
+          issue.assigneeId = assigneeVal;
+          issue.dueDate = dueVal;
+          toast('Issue updated', 'success');
+          renderView();
         } catch (err) {
           errorEl.textContent = err.message;
+        }
+      });
+    }
+
+    function renderCreate() {
+      area.innerHTML = `
+        <form id="issue-form">
+          <div class="field">
+            <label for="issue-type">Type</label>
+            <select id="issue-type" required>
+              ${issueTypes.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label for="issue-title">Title</label>
+            <input id="issue-title" type="text" required maxlength="255">
+          </div>
+          <div class="field">
+            <label for="issue-desc">Description</label>
+            <textarea id="issue-desc"></textarea>
+          </div>
+          <div class="field">
+            <label for="issue-priority">Priority</label>
+            <select id="issue-priority">${priorityOptionsHtml('MEDIUM')}</select>
+          </div>
+          <div class="field">
+            <label for="issue-assignee">Assignee</label>
+            <select id="issue-assignee">${assigneeOptionsHtml(null)}</select>
+          </div>
+          <div class="field">
+            <label for="issue-due">Due date</label>
+            <input id="issue-due" type="date">
+          </div>
+          <p class="error-text" id="form-error"></p>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="close-btn">Close</button>
+            <button type="submit" class="btn">Create</button>
+          </div>
+        </form>`;
+
+      area.querySelector('#close-btn').addEventListener('click', closeAndRefresh);
+      area.querySelector('#issue-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errorEl = area.querySelector('#form-error');
+        const typeVal = area.querySelector('#issue-type').value;
+        const titleVal = area.querySelector('#issue-title').value.trim();
+        const descVal = area.querySelector('#issue-desc').value.trim();
+        const priorityVal = area.querySelector('#issue-priority').value;
+        const assigneeVal = area.querySelector('#issue-assignee').value || null;
+        const dueVal = area.querySelector('#issue-due').value || null;
+        try {
+          await api('POST', `/api/workspaces/${workspace.id}/projects/${project.id}/issues`, {
+            projectIssueTypeId: typeVal,
+            title: titleVal,
+            description: descVal || null,
+            priority: priorityVal,
+            assigneeId: assigneeVal,
+            dueDate: dueVal,
+          });
+          toast('Issue created', 'success');
+          closeAndRefresh();
+        } catch (err) {
+          errorEl.textContent = err.message;
+        }
+      });
+    }
+
+    if (isCreate) {
+      renderCreate();
+      return;
+    }
+
+    renderView();
+    loadHistory(workspace, project, issue, document.getElementById('history-list'));
+    loadComments(workspace, project, issue, document.getElementById('comments-list'));
+    const commentForm = document.getElementById('comment-form');
+    if (commentForm) {
+      commentForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const textarea = document.getElementById('comment-body');
+        const bodyVal = textarea.value.trim();
+        if (!bodyVal) return;
+        try {
+          await api('POST', `/api/workspaces/${workspace.id}/projects/${project.id}/issues/${issue.id}/comments`, { body: bodyVal });
+          textarea.value = '';
+          loadComments(workspace, project, issue, document.getElementById('comments-list'));
+        } catch (err) {
+          toast(err.message);
         }
       });
     }
